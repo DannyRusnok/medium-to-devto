@@ -1,0 +1,18 @@
+services:
+  - type: cron
+    name: medium-to-devto
+    runtime: node
+    schedule: "0 14,16,18 * * 1,3,5"  # Po, St, Pá ve 14:00, 16:00, 18:00 UTC
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: MEDIUM_USERNAME
+        value: danielrusnok
+      - key: DEVTO_API_KEY
+        sync: false  # zadáš ručně v Render dashboardu
+      - key: NOTION_TOKEN
+        sync: false
+      - key: NOTION_DATABASE_ID
+        sync: false
+      - key: NTFY_TOPIC
+        sync: false

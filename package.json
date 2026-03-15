@@ -1,0 +1,17 @@
+{
+  "name": "medium-to-devto",
+  "version": "1.0.0",
+  "description": "Automatically cross-posts new Medium articles to dev.to",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@notionhq/client": "^2.2.15",
+    "cheerio": "^1.0.0",
+    "node-fetch": "^3.3.2",
+    "rss-parser": "^3.13.0",
+    "turndown": "^7.2.0"
+  }
+}
