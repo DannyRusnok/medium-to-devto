@@ -23,6 +23,10 @@ const DEVTO_API = 'https://dev.to/api/articles';
 const NOTION_DB_ID = process.env.NOTION_DATABASE_ID;
 const NTFY_TOPIC = process.env.NTFY_TOPIC;
 
+// Only process articles published after this date (deploy date)
+// This prevents bulk-publishing all historical articles on first run
+const CUTOFF_DATE = new Date(process.env.CUTOFF_DATE || '2026-03-15');
+
 async function getPublishedArticlesFromNotion() {
   const response = await notion.databases.query({
     database_id: NOTION_DB_ID,
@@ -57,7 +61,14 @@ async function saveArticleToNotion({ title, mediumUrl, devtoUrl, publishedAt }) 
 }
 
 async function fetchArticleContent(url) {
-  const response = await fetch(url);
+  let response;
+  try {
+    response = await fetch(url);
+  } catch (err) {
+    // Fallback: use RSS content if fetch fails (e.g. SSL issues)
+    console.warn(`Warning: Could not fetch ${url}: ${err.message}. Using RSS content.`);
+    return null;
+  }
   const html = await response.text();
   const $ = cheerio.load(html);
 
@@ -113,11 +124,11 @@ async function sendNotification({ title, devtoUrl, mediumUrl }) {
   await fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
     method: 'POST',
     headers: {
-      'Title': '✅ Nový článek na dev.to',
-      'Tags': 'newspaper',
+      'Title': encodeURIComponent('Novy clanek na dev.to'),
+      'Tags': 'white_check_mark,newspaper',
       'Click': devtoUrl,
     },
-    body: `"${title}" byl publikován na dev.to\n\nDev.to: ${devtoUrl}\nMedium: ${mediumUrl}`,
+    body: `"${title}" byl publikovan na dev.to\n\nDev.to: ${devtoUrl}\nMedium: ${mediumUrl}`,
   });
 }
 
@@ -139,9 +150,17 @@ async function run() {
     const publishedUrls = await getPublishedArticlesFromNotion();
     console.log(`${publishedUrls.size} articles already in Notion DB`);
 
-    // 3. Find new articles
-    const newArticles = feed.items.filter(item => !publishedUrls.has(item.link));
-    console.log(`${newArticles.length} new articles to process`);
+    // 3. Find new articles (only those published after cutoff date)
+    const newArticles = feed.items.filter(item => {
+      if (publishedUrls.has(item.link)) return false;
+      const pubDate = new Date(item.pubDate);
+      if (pubDate < CUTOFF_DATE) {
+        console.log(`Skipping (before cutoff): "${item.title}" (${pubDate.toISOString().split('T')[0]})`);
+        return false;
+      }
+      return true;
+    });
+    console.log(`${newArticles.length} new articles to process (cutoff: ${CUTOFF_DATE.toISOString().split('T')[0]})`);
 
     if (newArticles.length === 0) {
       console.log('Nothing to do. Exiting.');
@@ -153,8 +172,13 @@ async function run() {
       console.log(`Processing: "${item.title}"`);
 
       try {
-        // Fetch full article HTML
-        const html = await fetchArticleContent(item.link);
+        // Fetch full article HTML (fallback to RSS content if fetch fails)
+        const html = await fetchArticleContent(item.link) || item['content:encoded'] || item.content || '';
+
+        if (!html) {
+          console.warn(`No content available for "${item.title}", skipping.`);
+          continue;
+        }
 
         // Convert to markdown
         const markdown = await convertToMarkdown(html, item.link);
@@ -199,10 +223,10 @@ async function run() {
           await fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
             method: 'POST',
             headers: {
-              'Title': '❌ Chyba při autopublishi',
+              'Title': encodeURIComponent('Chyba pri autopublishi'),
               'Tags': 'warning',
             },
-            body: `Nepodařilo se publikovat "${item.title}"\n\nChyba: ${err.message}`,
+            body: `Nepodarilo se publikovat "${item.title}"\n\nChyba: ${err.message}`,
           });
         }
       }
