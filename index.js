@@ -100,7 +100,7 @@ async function saveArticleToNotion({ title, mediumUrl, devtoUrl, publishedAt, ma
   });
 }
 
-function extractFriendLink(rssHtml) {
+function extractFriendLink(rssHtml, articleUrl) {
   if (!rssHtml) return null;
   const $ = cheerio.load(rssHtml);
 
@@ -114,6 +114,18 @@ function extractFriendLink(rssHtml) {
       return false; // break
     }
   });
+
+  if (!friendLink) return null;
+
+  // Resolve relative URLs (e.g. "/article-slug?sk=...") against article domain
+  if (friendLink.startsWith('/')) {
+    try {
+      const base = new URL(articleUrl);
+      friendLink = `${base.origin}${friendLink}`;
+    } catch {
+      friendLink = `https://medium.com${friendLink}`;
+    }
+  }
 
   return friendLink;
 }
@@ -230,7 +242,7 @@ async function run() {
       try {
         // Strategy: extract friend link from RSS content → fetch full article via friend link
         const rssContent = item['content:encoded'] || item.content || '';
-        const friendLink = extractFriendLink(rssContent);
+        const friendLink = extractFriendLink(rssContent, item.link);
 
         let html;
         if (friendLink) {
