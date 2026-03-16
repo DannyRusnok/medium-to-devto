@@ -3,6 +3,11 @@ import { Client } from '@notionhq/client';
 import * as cheerio from 'cheerio';
 import TurndownService from 'turndown';
 import fetch from 'node-fetch';
+import https from 'https';
+
+// Agent that skips SSL verification — used ONLY for fetching article content
+// (some publication domains like levelup.gitconnected.com have broken cert chains)
+const insecureAgent = new https.Agent({ rejectUnauthorized: false });
 
 const parser = new Parser();
 const notion = new Client({ auth: process.env.NOTION_TOKEN });
@@ -98,9 +103,8 @@ async function saveArticleToNotion({ title, mediumUrl, devtoUrl, publishedAt, ma
 async function fetchArticleContent(url) {
   let response;
   try {
-    response = await fetch(url);
+    response = await fetch(url, { agent: url.startsWith('https') ? insecureAgent : undefined });
   } catch (err) {
-    // Fallback: use RSS content if fetch fails (e.g. SSL issues)
     console.warn(`Warning: Could not fetch ${url}: ${err.message}. Using RSS content.`);
     return null;
   }
