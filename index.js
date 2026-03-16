@@ -1,13 +1,7 @@
 import Parser from 'rss-parser';
 import { Client } from '@notionhq/client';
-import * as cheerio from 'cheerio';
 import TurndownService from 'turndown';
 import fetch from 'node-fetch';
-import https from 'https';
-
-// Agent that skips SSL verification — used ONLY for fetching article content
-// (some publication domains like levelup.gitconnected.com have broken cert chains)
-const insecureAgent = new https.Agent({ rejectUnauthorized: false });
 
 const parser = new Parser();
 const notion = new Client({ auth: process.env.NOTION_TOKEN });
@@ -98,55 +92,6 @@ async function saveArticleToNotion({ title, mediumUrl, devtoUrl, publishedAt, ma
     },
     children,
   });
-}
-
-function extractFriendLink(rssHtml, articleUrl) {
-  if (!rssHtml) return null;
-  const $ = cheerio.load(rssHtml);
-
-  // Look for a link whose text contains "friend" (case-insensitive)
-  let friendLink = null;
-  $('a').each((_, el) => {
-    const text = $(el).text().toLowerCase();
-    const href = $(el).attr('href');
-    if (href && text.includes('friend')) {
-      friendLink = href;
-      return false; // break
-    }
-  });
-
-  if (!friendLink) return null;
-
-  // Resolve relative URLs (e.g. "/article-slug?sk=...") against article domain
-  if (friendLink.startsWith('/')) {
-    try {
-      const base = new URL(articleUrl);
-      friendLink = `${base.origin}${friendLink}`;
-    } catch {
-      friendLink = `https://medium.com${friendLink}`;
-    }
-  }
-
-  return friendLink;
-}
-
-async function fetchArticleContent(url) {
-  let response;
-  try {
-    response = await fetch(url, { agent: url.startsWith('https') ? insecureAgent : undefined });
-  } catch (err) {
-    console.warn(`Warning: Could not fetch ${url}: ${err.message}.`);
-    return null;
-  }
-  const html = await response.text();
-  const $ = cheerio.load(html);
-
-  // Remove unwanted elements
-  $('script, style, nav, footer, .metabar, .u-marginBottom10').remove();
-
-  // Get the article body
-  const articleBody = $('article').html() || $('section').first().html() || $('body').html();
-  return articleBody;
 }
 
 function convertToMarkdown(html) {
@@ -240,31 +185,9 @@ async function run() {
       console.log(`Processing: "${item.title}"`);
 
       try {
-        // Strategy:
-        // 1. Fetch paywalled page (visible part contains friend link)
-        // 2. Extract friend link from that page
-        // 3. Re-fetch full article via friend link
-        const rssContent = item['content:encoded'] || item.content || '';
-        let html = await fetchArticleContent(item.link);
-
-        if (html) {
-          const friendLink = extractFriendLink(html, item.link);
-          if (friendLink) {
-            console.log(`Found friend link: ${friendLink}`);
-            const fullHtml = await fetchArticleContent(friendLink);
-            if (fullHtml) {
-              html = fullHtml;
-              console.log(`Fetched full article via friend link.`);
-            } else {
-              console.warn(`Friend link fetch failed, using paywalled content.`);
-            }
-          } else {
-            console.log(`No friend link found, using fetched content as-is.`);
-          }
-        } else {
-          console.warn(`Could not fetch article page, falling back to RSS content.`);
-          html = rssContent;
-        }
+        // Use RSS content (contains title, image, subtitle, intro)
+        // Full article body will be pasted manually by Daniel
+        const html = item['content:encoded'] || item.content || '';
 
         if (!html) {
           console.warn(`No content available for "${item.title}", skipping.`);
