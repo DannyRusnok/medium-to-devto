@@ -240,20 +240,30 @@ async function run() {
       console.log(`Processing: "${item.title}"`);
 
       try {
-        // Strategy: extract friend link from RSS content → fetch full article via friend link
+        // Strategy:
+        // 1. Fetch paywalled page (visible part contains friend link)
+        // 2. Extract friend link from that page
+        // 3. Re-fetch full article via friend link
         const rssContent = item['content:encoded'] || item.content || '';
-        const friendLink = extractFriendLink(rssContent, item.link);
+        let html = await fetchArticleContent(item.link);
 
-        let html;
-        if (friendLink) {
-          console.log(`Found friend link: ${friendLink}`);
-          html = await fetchArticleContent(friendLink);
-        }
-
-        // Fallback: try original link, then RSS content
-        if (!html) {
-          if (friendLink) console.warn(`Friend link fetch failed, trying original URL...`);
-          html = await fetchArticleContent(item.link) || rssContent;
+        if (html) {
+          const friendLink = extractFriendLink(html, item.link);
+          if (friendLink) {
+            console.log(`Found friend link: ${friendLink}`);
+            const fullHtml = await fetchArticleContent(friendLink);
+            if (fullHtml) {
+              html = fullHtml;
+              console.log(`Fetched full article via friend link.`);
+            } else {
+              console.warn(`Friend link fetch failed, using paywalled content.`);
+            }
+          } else {
+            console.log(`No friend link found, using fetched content as-is.`);
+          }
+        } else {
+          console.warn(`Could not fetch article page, falling back to RSS content.`);
+          html = rssContent;
         }
 
         if (!html) {
