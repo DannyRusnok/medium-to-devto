@@ -210,8 +210,9 @@ async function run() {
       console.log(`Processing: "${item.title}"`);
 
       try {
-        // Fetch full article HTML (fallback to RSS content if fetch fails)
-        const html = await fetchArticleContent(item.link) || item['content:encoded'] || item.content || '';
+        // Use RSS content:encoded as primary source (bypasses Medium paywall)
+        // Fall back to web fetch only if RSS content is missing
+        const html = item['content:encoded'] || item.content || await fetchArticleContent(item.link) || '';
 
         if (!html) {
           console.warn(`No content available for "${item.title}", skipping.`);
