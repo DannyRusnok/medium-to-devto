@@ -45,7 +45,33 @@ async function getPublishedArticlesFromNotion() {
   );
 }
 
-async function saveArticleToNotion({ title, mediumUrl, devtoUrl, publishedAt }) {
+async function saveArticleToNotion({ title, mediumUrl, devtoUrl, publishedAt, markdown }) {
+  // Notion API limits rich_text blocks to 2000 chars each — split markdown into chunks
+  const CHUNK_SIZE = 2000;
+  const chunks = [];
+  for (let i = 0; i < markdown.length; i += CHUNK_SIZE) {
+    chunks.push(markdown.slice(i, i + CHUNK_SIZE));
+  }
+
+  // Build page content: heading + code blocks with markdown for easy copy-paste
+  const children = [
+    {
+      object: 'block',
+      type: 'heading_2',
+      heading_2: {
+        rich_text: [{ type: 'text', text: { content: 'Substack-ready Markdown (copy & paste)' } }]
+      }
+    },
+    ...chunks.map(chunk => ({
+      object: 'block',
+      type: 'code',
+      code: {
+        rich_text: [{ type: 'text', text: { content: chunk } }],
+        language: 'markdown'
+      }
+    }))
+  ];
+
   await notion.pages.create({
     parent: { database_id: NOTION_DB_ID },
     properties: {
@@ -64,7 +90,8 @@ async function saveArticleToNotion({ title, mediumUrl, devtoUrl, publishedAt }) 
       'Status': {
         select: { name: 'Draft' }
       }
-    }
+    },
+    children,
   });
 }
 
@@ -88,13 +115,13 @@ async function fetchArticleContent(url) {
   return articleBody;
 }
 
-async function convertToMarkdown(html, canonicalUrl) {
+function convertToMarkdown(html) {
   const markdown = turndown.turndown(html);
 
-  // Clean up excessive newlines and append CTA
+  // Clean up excessive newlines
   return markdown
     .replace(/\n{3,}/g, '\n\n')
-    .trim() + DEVTO_CTA;
+    .trim();
 }
 
 async function publishToDevTo({ title, markdown, canonicalUrl, tags }) {
@@ -135,7 +162,7 @@ async function sendNotification({ title, devtoUrl, mediumUrl }) {
       'Tags': 'memo,newspaper',
       'Click': devtoUrl,
     },
-    body: `"${title}" - draft vytvoren na dev.to\n\nZkontroluj a publikuj: ${devtoUrl}\nMedium original: ${mediumUrl}`,
+    body: `"${title}" - draft vytvoren na dev.to\n\nZkontroluj a publikuj: ${devtoUrl}\nMedium original: ${mediumUrl}\n\nSubstack markdown pripraveny v Notion zaznamu.`,
   });
 }
 
@@ -187,28 +214,30 @@ async function run() {
           continue;
         }
 
-        // Convert to markdown
-        const markdown = await convertToMarkdown(html, item.link);
+        // Convert to markdown (base version without platform-specific CTA)
+        const baseMarkdown = convertToMarkdown(html);
+        const devtoMarkdown = baseMarkdown + DEVTO_CTA;
 
         // Extract tags
         const tags = extractTagsFromMediumItem(item);
 
-        // Publish to dev.to
+        // Create draft on dev.to
         const devtoArticle = await publishToDevTo({
           title: item.title,
-          markdown,
+          markdown: devtoMarkdown,
           canonicalUrl: item.link,
           tags,
         });
 
         console.log(`✅ Draft created on dev.to: ${devtoArticle.url}`);
 
-        // Save to Notion
+        // Save to Notion (with base markdown for Substack copy-paste)
         await saveArticleToNotion({
           title: item.title,
           mediumUrl: item.link,
           devtoUrl: devtoArticle.url,
           publishedAt: new Date(item.pubDate).toISOString().split('T')[0],
+          markdown: baseMarkdown,
         });
 
         console.log(`✅ Saved to Notion`);
