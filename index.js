@@ -100,12 +100,30 @@ async function saveArticleToNotion({ title, mediumUrl, devtoUrl, publishedAt, ma
   });
 }
 
+function extractFriendLink(rssHtml) {
+  if (!rssHtml) return null;
+  const $ = cheerio.load(rssHtml);
+
+  // Look for a link whose text contains "friend" (case-insensitive)
+  let friendLink = null;
+  $('a').each((_, el) => {
+    const text = $(el).text().toLowerCase();
+    const href = $(el).attr('href');
+    if (href && text.includes('friend')) {
+      friendLink = href;
+      return false; // break
+    }
+  });
+
+  return friendLink;
+}
+
 async function fetchArticleContent(url) {
   let response;
   try {
     response = await fetch(url, { agent: url.startsWith('https') ? insecureAgent : undefined });
   } catch (err) {
-    console.warn(`Warning: Could not fetch ${url}: ${err.message}. Using RSS content.`);
+    console.warn(`Warning: Could not fetch ${url}: ${err.message}.`);
     return null;
   }
   const html = await response.text();
@@ -210,9 +228,21 @@ async function run() {
       console.log(`Processing: "${item.title}"`);
 
       try {
-        // Use RSS content:encoded as primary source (bypasses Medium paywall)
-        // Fall back to web fetch only if RSS content is missing
-        const html = item['content:encoded'] || item.content || await fetchArticleContent(item.link) || '';
+        // Strategy: extract friend link from RSS content → fetch full article via friend link
+        const rssContent = item['content:encoded'] || item.content || '';
+        const friendLink = extractFriendLink(rssContent);
+
+        let html;
+        if (friendLink) {
+          console.log(`Found friend link: ${friendLink}`);
+          html = await fetchArticleContent(friendLink);
+        }
+
+        // Fallback: try original link, then RSS content
+        if (!html) {
+          if (friendLink) console.warn(`Friend link fetch failed, trying original URL...`);
+          html = await fetchArticleContent(item.link) || rssContent;
+        }
 
         if (!html) {
           console.warn(`No content available for "${item.title}", skipping.`);
