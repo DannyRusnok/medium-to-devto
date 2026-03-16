@@ -169,7 +169,7 @@ async function sendNotification({ title, devtoUrl, mediumUrl }) {
 function extractTagsFromMediumItem(item) {
   // Medium RSS includes categories as tags
   const categories = item.categories || [];
-  return categories.map(c => c.toLowerCase().replace(/\s+/g, '')).slice(0, 4);
+  return categories.map(c => c.toLowerCase().replace(/[^a-z0-9]/g, '')).slice(0, 4);
 }
 
 async function run() {
