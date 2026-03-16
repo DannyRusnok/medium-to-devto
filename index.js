@@ -27,6 +27,14 @@ const NTFY_TOPIC = process.env.NTFY_TOPIC;
 // This prevents bulk-publishing all historical articles on first run
 const CUTOFF_DATE = new Date(process.env.CUTOFF_DATE || '2026-03-15');
 
+// CTA appended to every dev.to article
+const DEVTO_CTA = `
+
+---
+
+*I'm a .NET and React developer sharing what I actually run into at work. If you'd rather get it straight to your inbox, I also publish at [danielrusnok.substack.com](https://danielrusnok.substack.com).*
+`;
+
 async function getPublishedArticlesFromNotion() {
   const response = await notion.databases.query({
     database_id: NOTION_DB_ID,
@@ -54,7 +62,7 @@ async function saveArticleToNotion({ title, mediumUrl, devtoUrl, publishedAt }) 
         date: { start: publishedAt }
       },
       'Status': {
-        select: { name: 'Published' }
+        select: { name: 'Draft' }
       }
     }
   });
@@ -81,13 +89,12 @@ async function fetchArticleContent(url) {
 }
 
 async function convertToMarkdown(html, canonicalUrl) {
-  // Add canonical URL note at top
   const markdown = turndown.turndown(html);
 
-  // Clean up excessive newlines
+  // Clean up excessive newlines and append CTA
   return markdown
     .replace(/\n{3,}/g, '\n\n')
-    .trim();
+    .trim() + DEVTO_CTA;
 }
 
 async function publishToDevTo({ title, markdown, canonicalUrl, tags }) {
@@ -95,7 +102,7 @@ async function publishToDevTo({ title, markdown, canonicalUrl, tags }) {
     article: {
       title,
       body_markdown: markdown,
-      published: true,
+      published: false,
       canonical_url: canonicalUrl,
       tags: tags.slice(0, 4), // dev.to allows max 4 tags
     }
@@ -124,11 +131,11 @@ async function sendNotification({ title, devtoUrl, mediumUrl }) {
   await fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
     method: 'POST',
     headers: {
-      'Title': encodeURIComponent('Novy clanek na dev.to'),
-      'Tags': 'white_check_mark,newspaper',
+      'Title': encodeURIComponent('Novy draft na dev.to - zkontroluj a publikuj'),
+      'Tags': 'memo,newspaper',
       'Click': devtoUrl,
     },
-    body: `"${title}" byl publikovan na dev.to\n\nDev.to: ${devtoUrl}\nMedium: ${mediumUrl}`,
+    body: `"${title}" - draft vytvoren na dev.to\n\nZkontroluj a publikuj: ${devtoUrl}\nMedium original: ${mediumUrl}`,
   });
 }
 
@@ -194,7 +201,7 @@ async function run() {
           tags,
         });
 
-        console.log(`✅ Published to dev.to: ${devtoArticle.url}`);
+        console.log(`✅ Draft created on dev.to: ${devtoArticle.url}`);
 
         // Save to Notion
         await saveArticleToNotion({
@@ -226,7 +233,7 @@ async function run() {
               'Title': encodeURIComponent('Chyba pri autopublishi'),
               'Tags': 'warning',
             },
-            body: `Nepodarilo se publikovat "${item.title}"\n\nChyba: ${err.message}`,
+            body: `Nepodarilo se vytvorit draft "${item.title}"\n\nChyba: ${err.message}`,
           });
         }
       }
